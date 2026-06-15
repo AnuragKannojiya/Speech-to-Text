@@ -13,7 +13,7 @@ export const App: React.FC = () => {
         <Routes>
           {/* Protected Main Dashboard */}
           <Route
-            path="/"
+            path="/dashboard"
             element={
               <ProtectedRoute>
                 <Dashboard />
@@ -26,7 +26,8 @@ export const App: React.FC = () => {
           <Route path="/signup" element={<SignUp />} />
 
           {/* Fallback Catch-All redirection */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
     </AuthProvider>
