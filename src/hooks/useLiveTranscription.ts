@@ -94,38 +94,11 @@ export function useLiveTranscription() {
       });
       audioStreamRef.current = stream;
 
-      // 2. Open WebSocket to Deepgram
+      // 2. Open WebSocket to Deepgram (MediaRecorder starts in useEffect once connected)
       if (transcriptionServiceRef.current) {
         transcriptionServiceRef.current.connect();
       }
 
-      // 3. Setup MediaRecorder
-      // Identify supported browser mime types
-      let options = { mimeType: 'audio/webm' };
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options = { mimeType: 'audio/ogg' };
-      }
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options = { mimeType: 'audio/mp4' };
-      }
-      
-      const mediaRecorder = new MediaRecorder(
-        stream,
-        MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined
-      );
-      
-      mediaRecorderRef.current = mediaRecorder;
-
-      // 4. Pipe chunks to transcriptionService when they arrive
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && transcriptionServiceRef.current) {
-          // Send raw blob chunk to WebSocket
-          transcriptionServiceRef.current.sendAudio(event.data);
-        }
-      };
-
-      // Emit dataavailable event every 250ms for low latency transcription
-      mediaRecorder.start(250);
       setIsRecording(true);
 
       // Start duration elapsed timer
@@ -182,6 +155,57 @@ export function useLiveTranscription() {
 
     setInterimTranscript('');
   }, []);
+
+  // Start/Stop MediaRecorder dynamically based on WebSocket connection status
+  useEffect(() => {
+    if (connectionStatus === 'connected' && isRecording && audioStreamRef.current) {
+      if (!mediaRecorderRef.current) {
+        console.log('WebSocket connected. Starting MediaRecorder...');
+        try {
+          let options = { mimeType: 'audio/webm' };
+          if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options = { mimeType: 'audio/ogg' };
+          }
+          if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+            options = { mimeType: 'audio/mp4' };
+          }
+
+          const mediaRecorder = new MediaRecorder(
+            audioStreamRef.current,
+            MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined
+          );
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && transcriptionServiceRef.current) {
+              transcriptionServiceRef.current.sendAudio(event.data);
+            }
+          };
+
+          // Emit chunks every 250ms
+          mediaRecorder.start(250);
+        } catch (err: any) {
+          console.error('Failed to start MediaRecorder:', err);
+          setError(`Failed to start recording process: ${err.message}`);
+          stopRecording();
+        }
+      }
+    } else {
+      // If we lose connection or recording is stopped, clean up the current MediaRecorder
+      // This forces a new MediaRecorder (with fresh WebM headers) to be created on next connection
+      if (mediaRecorderRef.current) {
+        console.log('Stopping current MediaRecorder due to connection status change:', connectionStatus);
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          try {
+            mediaRecorderRef.current.stop();
+          } catch (e) {
+            console.error('Error stopping MediaRecorder:', e);
+          }
+        }
+        mediaRecorderRef.current = null;
+      }
+    }
+  }, [connectionStatus, isRecording, stopRecording]);
 
   const clearTranscript = useCallback(() => {
     setSegments([]);
